@@ -1215,6 +1215,9 @@ class DB {
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
     static const std::string kIsWriteStopped;
 
+    //  "rocksdb.is-write-stalled" - Return 1 if write has been stalled.
+    static const std::string kIsWriteStalled;
+
     //  "rocksdb.estimate-oldest-key-time" - returns an estimation of
     //      oldest key timestamp in the DB. Currently only available for
     //      FIFO compaction with
@@ -1323,6 +1326,7 @@ class DB {
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
+  //  "rocksdb.is-write-stalled"
   //  "rocksdb.estimate-oldest-key-time"
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"

@@ -812,7 +812,8 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
                   preallocation_size + (preallocation_size / 10));
 }
 
-std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
+std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter(
+    std::optional<Slice> start, std::optional<Slice> end) const {
   if (!cfd_->ioptions()->compaction_filter_factory) {
     return nullptr;
   }
@@ -830,6 +831,12 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.column_family_id = cfd_->GetID();
   context.reason = TableFileCreationReason::kCompaction;
   context.input_table_properties = GetInputTableProperties();
+  context.is_bottommost_level = bottommost_level_;
+  context.start_key = start == std::nullopt ? GetSmallestUserKey()
+                                            : ExtractUserKey(start.value());
+  context.end_key =
+      end == std::nullopt ? GetLargestUserKey() : ExtractUserKey(end.value());
+  context.is_end_key_inclusive = end == std::nullopt;
   if (context.input_table_properties.empty()) {
     ROCKS_LOG_WARN(
         immutable_options_.info_log,

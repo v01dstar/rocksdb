@@ -16,9 +16,11 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/wide_columns.h"
+#include "types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -67,6 +69,8 @@ class CompactionFilter : public Customizable {
     kBlobIndex,
     // Wide-column entity
     kWideColumnEntity,
+    // Only used by TiKV's region range filter.
+    kDeletion,
   };
 
   // Potential decisions that can be returned by the compaction filter's
@@ -164,6 +168,14 @@ class CompactionFilter : public Customizable {
     // The lowest level among all the input files (if any) used in table
     // creation
     int input_start_level = kUnknownStartLevel;
+    // Whether output files are in bottommost level or not.
+    bool is_bottommost_level;
+
+    // The range of the compaction.
+    Slice start_key;
+    Slice end_key;
+    bool is_end_key_inclusive;
+
     // The column family that will contain the created table file.
     uint32_t column_family_id;
     // Reason this table file is being created.
@@ -251,6 +263,10 @@ class CompactionFilter : public Customizable {
 
       case ValueType::kBlobIndex:
         return Decision::kKeep;
+      case ValueType::kDeletion:
+        // Should never be reached.
+        assert(false);
+        return Decision::kKeep;
 
       default:
         assert(false);
@@ -298,6 +314,32 @@ class CompactionFilter : public Customizable {
 
     return FilterV2(level, key, value_type, *existing_value, new_value,
                     skip_until);
+  }
+
+  virtual Decision FilterV4(
+      int level, const Slice& key, SequenceNumber, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::string* skip_until) const {
+    return FilterV3(level, key, value_type, existing_value, existing_columns,
+                    new_value, new_columns, skip_until);
+  }
+
+  // This interface is reserved for TiKV's region range filter. Only this
+  // interface can accept `value_type=kTypeDeletion`.
+  virtual Decision UnsafeFilter(
+      int level, const Slice& key, SequenceNumber seqno, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::string* skip_until) const {
+    if (value_type != ValueType::kDeletion) {
+      return FilterV4(level, key, seqno, value_type, existing_value,
+                      existing_columns, new_value, new_columns, skip_until);
+    } else {
+      return Decision::kKeep;
+    }
   }
 
   // Internal (BlobDB) use only. Do not override in application code.

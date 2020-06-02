@@ -311,7 +311,8 @@ class Compaction {
   void ResetNextCompactionIndex();
 
   // Create a CompactionFilter from compaction_filter_factory
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      std::optional<Slice> start, std::optional<Slice> end) const;
 
   // Create a SstPartitioner from sst_partitioner_factory
   std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;
