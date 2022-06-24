@@ -147,7 +147,8 @@ void DBImpl::SetRecoverableStatePreReleaseCallback(
   recoverable_state_pre_release_callback_.reset(callback);
 }
 
-Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
+Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch,
+                     uint64_t* seq) {
   Status s;
   if (write_options.protection_bytes_per_key > 0) {
     s = WriteBatchInternal::UpdateProtectionInfo(
@@ -155,7 +156,8 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   }
   if (s.ok()) {
     s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
-                  /*log_used=*/nullptr);
+                  /*log_used=*/nullptr, /*log_ref=*/0,
+                  /*disable_memtable=*/false, seq);
   }
   return s;
 }
