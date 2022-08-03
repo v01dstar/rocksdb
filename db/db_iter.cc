@@ -561,8 +561,8 @@ bool DBIter::MergeValuesNewToOld() {
       break;
     }
     if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
-               range_del_agg_.ShouldDelete(
-                   ikey, RangeDelPositioningMode::kForwardTraversal)) {
+        range_del_agg_.ShouldDelete(
+            ikey, RangeDelPositioningMode::kForwardTraversal)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
@@ -919,6 +919,7 @@ bool DBIter::FindValueForCurrentKey() {
       case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
         merge_context_.Clear();
+        pinned_value_ = iter_.value();
         last_not_merge_type = last_key_entry_type;
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
