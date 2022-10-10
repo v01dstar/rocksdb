@@ -1423,7 +1423,9 @@ class DBImpl : public DB {
 
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
-                          int job_id, FlushReason flush_reason);
+                          int job_id, SequenceNumber earliest_seqno,
+                          SequenceNumber largest_seqno,
+                          FlushReason flush_reason);
 
   void NotifyOnFlushCompleted(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
