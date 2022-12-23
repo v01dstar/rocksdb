@@ -148,18 +148,16 @@ void DBImpl::SetRecoverableStatePreReleaseCallback(
 }
 
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch,
-                     uint64_t* seq) {
+                     PostWriteCallback* callback) {
   Status s;
   if (write_options.protection_bytes_per_key > 0) {
     s = WriteBatchInternal::UpdateProtectionInfo(
         my_batch, write_options.protection_bytes_per_key);
   }
-  if (s.ok()) {
-    s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
-                  /*log_used=*/nullptr, /*log_ref=*/0,
-                  /*disable_memtable=*/false, seq);
-  }
-  return s;
+  return WriteImpl(write_options, my_batch, /*callback=*/nullptr,
+                   /*log_used=*/nullptr, /*log_ref=*/0,
+                   /*disable_memtable=*/false, /*seq=*/nullptr, /*batch_cnt=*/0,
+                   /*pre_release_callback=*/nullptr, callback);
 }
 
 Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
@@ -171,7 +169,7 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
-    s = WriteImpl(write_options, my_batch, callback, nullptr);
+    s = WriteImpl(write_options, my_batch, callback);
   }
   return s;
 }
@@ -190,9 +188,12 @@ void DBImpl::MultiBatchWriteCommit(CommitRequest* request) {
 }
 
 Status DBImpl::MultiBatchWrite(const WriteOptions& options,
-                               std::vector<WriteBatch*>&& updates) {
+                               std::vector<WriteBatch*>&& updates,
+                               PostWriteCallback* callback) {
   if (immutable_db_options_.enable_multi_batch_write) {
-    return MultiBatchWriteImpl(options, std::move(updates), nullptr, nullptr);
+    return MultiBatchWriteImpl(options, std::move(updates),
+                               /*callback=*/nullptr, /*log_used=*/nullptr,
+                               /*log_ref=*/0, /*seq=*/nullptr, callback);
   } else {
     return Status::NotSupported();
   }
@@ -241,12 +242,14 @@ Status DBImpl::MultiBatchWrite(const WriteOptions& options,
 Status DBImpl::MultiBatchWriteImpl(const WriteOptions& write_options,
                                    std::vector<WriteBatch*>&& my_batch,
                                    WriteCallback* callback, uint64_t* log_used,
-                                   uint64_t log_ref, uint64_t* seq_used) {
+                                   uint64_t log_ref, uint64_t* seq_used,
+                                   PostWriteCallback* post_callback) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock,
                      immutable_db_options_.statistics.get(), DB_WRITE);
   WriteThread::Writer writer(write_options, std::move(my_batch), callback,
-                             log_ref, false /*disable_memtable*/);
+                             post_callback, log_ref,
+                             false /*disable_memtable*/);
   CommitRequest request(&writer);
   writer.request = &request;
   write_thread_.JoinBatchGroup(&writer);
@@ -407,6 +410,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback,
+                         PostWriteCallback* post_callback,
                          PostMemTableCallback* post_memtable_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
@@ -467,6 +471,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (two_write_queues_ && immutable_db_options_.enable_multi_batch_write) {
     return Status::NotSupported(
         "pipelined_writes is not compatible with concurrent prepares");
+  }
+  if (two_write_queues_ && post_callback) {
+    return Status::NotSupported(
+        "post write callback is not compatible with concurrent prepares");
+  }
+  if (disable_memtable && post_callback) {
+    return Status::NotSupported(
+        "post write callback is not compatible with disabling memtable");
   }
   if (seq_per_batch_ && immutable_db_options_.enable_pipelined_write) {
     // TODO(yiwu): update pipeline write with seq_per_batch and batch_cnt
@@ -530,8 +542,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     if (!disable_memtable) {
       TEST_SYNC_POINT("DBImpl::WriteImpl:BeforeUnorderedWriteMemtable");
-      status = UnorderedWriteMemtable(write_options, my_batch, callback,
-                                      log_ref, seq, sub_batch_cnt);
+      status =
+          UnorderedWriteMemtable(write_options, my_batch, callback, log_ref,
+                                 seq, sub_batch_cnt, post_callback);
     }
     return status;
   }
@@ -540,18 +553,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     std::vector<WriteBatch*> updates(1);
     updates[0] = my_batch;
     return MultiBatchWriteImpl(write_options, std::move(updates), callback,
-                               log_used, log_ref, seq_used);
+                               log_used, log_ref, seq_used, post_callback);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
-                              log_ref, disable_memtable, seq_used);
+                              log_ref, disable_memtable, seq_used,
+                              post_callback);
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, batch_cnt, pre_release_callback,
-                        post_memtable_callback);
+  WriteThread::Writer w(write_options, my_batch, callback, post_callback,
+                        log_ref, disable_memtable, batch_cnt,
+                        pre_release_callback, post_memtable_callback);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
@@ -909,14 +923,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   WriteBatch* my_batch, WriteCallback* callback,
                                   uint64_t* log_used, uint64_t log_ref,
-                                  bool disable_memtable, uint64_t* seq_used) {
+                                  bool disable_memtable, uint64_t* seq_used,
+                                  PostWriteCallback* post_callback) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   WriteContext write_context;
 
-  WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, /*_batch_cnt=*/0,
+  WriteThread::Writer w(write_options, my_batch, callback, post_callback,
+                        log_ref, disable_memtable, /*_batch_cnt=*/0,
                         /*_pre_release_callback=*/nullptr);
   write_thread_.JoinBatchGroup(&w);
   TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
@@ -1087,12 +1102,13 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
                                       WriteCallback* callback, uint64_t log_ref,
                                       SequenceNumber seq,
-                                      const size_t sub_batch_cnt) {
+                                      const size_t sub_batch_cnt,
+                                      PostWriteCallback* post_callback) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
-  WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        false /*disable_memtable*/);
+  WriteThread::Writer w(write_options, my_batch, callback, post_callback,
+                        log_ref, false /*disable_memtable*/);
 
   if (w.CheckCallback(this) && w.ShouldWriteToMemtable()) {
     w.sequence = seq;
@@ -1141,8 +1157,9 @@ Status DBImpl::WriteImplWALOnly(
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
     const PublishLastSeq publish_last_seq, const bool disable_memtable) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, sub_batch_cnt, pre_release_callback);
+  WriteThread::Writer w(write_options, my_batch, callback,
+                        /*post_callback=*/nullptr, log_ref, disable_memtable,
+                        sub_batch_cnt, pre_release_callback);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread->JoinBatchGroup(&w);
