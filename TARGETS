@@ -58,6 +58,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/db_impl/db_impl_debug.cc",
         "db/db_impl/db_impl_experimental.cc",
         "db/db_impl/db_impl_files.cc",
+        "db/db_impl/db_impl_merge.cc",
         "db/db_impl/db_impl_open.cc",
         "db/db_impl/db_impl_readonly.cc",
         "db/db_impl/db_impl_secondary.cc",
@@ -4861,6 +4862,10 @@ cpp_unittest_wrapper(name="db_merge_operator_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+cpp_unittest_wrapper(name="db_merge_test",
+            srcs=["db/db_merge_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
 
 cpp_unittest_wrapper(name="db_options_test",
             srcs=["db/db_options_test.cc"],

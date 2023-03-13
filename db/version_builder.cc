@@ -410,23 +410,26 @@ class VersionBuilder::Rep {
           } else if (epoch_number_requirement ==
                      EpochNumberRequirement::kMustPresent) {
             if (lhs->epoch_number == rhs->epoch_number) {
-              bool range_overlapped =
-                  icmp->Compare(lhs->smallest, rhs->largest) <= 0 &&
-                  icmp->Compare(lhs->largest, rhs->smallest) >= 0;
+              // The following check is disabled due to instance merge.
+              // bool range_overlapped =
+              //     icmp->Compare(lhs->smallest, rhs->largest) <= 0 &&
+              //     icmp->Compare(lhs->largest, rhs->smallest) >= 0;
 
-              if (range_overlapped) {
-                std::ostringstream oss;
-                oss << "L0 files of same epoch number but overlapping range #"
-                    << lhs->fd.GetNumber()
-                    << " , smallest key: " << lhs->smallest.DebugString(true)
-                    << " , largest key: " << lhs->largest.DebugString(true)
-                    << " , epoch number: " << lhs->epoch_number << " vs. file #"
-                    << rhs->fd.GetNumber()
-                    << " , smallest key: " << rhs->smallest.DebugString(true)
-                    << " , largest key: " << rhs->largest.DebugString(true)
-                    << " , epoch number: " << rhs->epoch_number;
-                return Status::Corruption("VersionBuilder", oss.str());
-              }
+              // if (range_overlapped) {
+              //   std::ostringstream oss;
+              //   oss << "L0 files of same epoch number but overlapping range
+              //   #"
+              //       << lhs->fd.GetNumber()
+              //       << " , smallest key: " << lhs->smallest.DebugString(true)
+              //       << " , largest key: " << lhs->largest.DebugString(true)
+              //       << " , epoch number: " << lhs->epoch_number << " vs. file
+              //       #"
+              //       << rhs->fd.GetNumber()
+              //       << " , smallest key: " << rhs->smallest.DebugString(true)
+              //       << " , largest key: " << rhs->largest.DebugString(true)
+              //       << " , epoch number: " << rhs->epoch_number;
+              //   return Status::Corruption("VersionBuilder", oss.str());
+              // }
             }
 
             if (!level_zero_cmp_by_epochno_(lhs, rhs)) {
