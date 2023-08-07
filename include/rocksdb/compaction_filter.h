@@ -62,6 +62,7 @@ class CompactionFilter : public Customizable {
     kValue,
     // Merge operand
     kMergeOperand,
+<<<<<<< HEAD
     // Used internally by the old stacked BlobDB implementation; this value type
     // is never passed to application code. Note that when using the new
     // integrated BlobDB, values stored separately as blobs are retrieved and
@@ -71,6 +72,10 @@ class CompactionFilter : public Customizable {
     kWideColumnEntity,
     // Only used by TiKV's region range filter.
     kDeletion,
+=======
+    kBlobIndex,  // used internally by BlobDB.
+    kDeletion,   // used only by TiKV's region range filter.
+>>>>>>> de47e8ece (filter deletion in compaction filter (#344))
   };
 
   // Potential decisions that can be returned by the compaction filter's
