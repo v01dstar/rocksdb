@@ -1959,6 +1959,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;
+  TEST_SYNC_POINT_CALLBACK("DBImpl::Flush:ScheduleFlushReq", column_family);
   if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush,
                              {cfh->cfd()});
