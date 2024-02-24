@@ -29,16 +29,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-enum TickersInternal : uint32_t {
-  INTERNAL_TICKER_ENUM_START = TICKER_ENUM_MAX,
-  INTERNAL_TICKER_ENUM_MAX
-};
-
-enum HistogramsInternal : uint32_t {
-  INTERNAL_HISTOGRAM_START = HISTOGRAM_ENUM_MAX,
-  INTERNAL_HISTOGRAM_ENUM_MAX
-};
-
+template <uint32_t TICKER_MAX = TICKER_ENUM_MAX,
+          uint32_t HISTOGRAM_MAX = HISTOGRAM_ENUM_MAX>
 class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats);
@@ -84,14 +76,13 @@ class StatisticsImpl : public Statistics {
   //
   // Alignment attributes expand to nothing depending on the platform
   struct ALIGN_AS(CACHE_LINE_SIZE) StatisticsData {
-    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
-    HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
+    std::atomic_uint_fast64_t tickers_[TICKER_MAX] = {{0}};
+    HistogramImpl histograms_[HISTOGRAM_MAX];
 #ifndef HAVE_ALIGNED_NEW
-    char
-        padding[(CACHE_LINE_SIZE -
-                 (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
-                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
-                     CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
+    char padding[(CACHE_LINE_SIZE -
+                  (TICKER_MAX * sizeof(std::atomic_uint_fast64_t) +
+                   HISTOGRAM_MAX * sizeof(HistogramImpl)) %
+                      CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
 #endif
     void* operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
     void* operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
