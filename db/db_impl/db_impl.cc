@@ -1317,10 +1317,11 @@ Status DBImpl::SetDBOptions(
                          mutable_db_options_.max_background_compactions,
                          mutable_db_options_.max_background_jobs,
                          /* parallelize_compactions */ true);
-      const BGJobLimits new_bg_job_limits = GetBGJobLimits(
-          new_options.max_background_flushes,
-          new_options.max_background_compactions,
-          new_options.max_background_jobs, /* parallelize_compactions */ true);
+      const BGJobLimits new_bg_job_limits =
+          GetBGJobLimits(new_options.max_background_flushes,
+                         new_options.max_background_compactions,
+                         new_options.max_background_jobs,
+                         /* parallelize_compactions */ true);
 
       const bool max_flushes_increased =
           new_bg_job_limits.max_flushes > current_bg_job_limits.max_flushes;
@@ -6414,6 +6415,7 @@ void DBImpl::NotifyOnExternalFileIngested(
     info.internal_file_path = f.internal_file_path;
     info.global_seqno = f.assigned_seqno;
     info.table_properties = f.table_properties;
+    info.picked_level = f.picked_level;
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnExternalFileIngested(this, info);
     }
