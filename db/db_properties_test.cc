@@ -1891,7 +1891,7 @@ TEST_F(DBPropertiesTest, BlobCacheProperties) {
 }
 
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
-  Options options;
+  Options options = CurrentOptions();
   uint64_t value;
 
   options.env = CurrentOptions().env;

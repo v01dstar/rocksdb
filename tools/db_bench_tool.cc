@@ -42,6 +42,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "encryption/in_memory_key_manager.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
@@ -50,6 +51,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "rocksdb/encryption.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
@@ -1773,6 +1775,10 @@ DEFINE_bool(build_info, false,
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
 
+DEFINE_string(
+    encryption_method, "",
+    "If non-empty, enable encryption with the specific encryption method.");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -2189,7 +2195,7 @@ enum OperationType : unsigned char {
   kOthers
 };
 
-static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
+static std::unordered_map<OperationType, std::string, std::hash<unsigned char> >
     OperationTypeString = {{kRead, "read"},         {kWrite, "write"},
                            {kDelete, "delete"},     {kSeek, "seek"},
                            {kMerge, "merge"},       {kUpdate, "update"},
@@ -2213,7 +2219,7 @@ class Stats {
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
-                     std::hash<unsigned char>>
+                     std::hash<unsigned char> >
       hist_;
   std::string message_;
   bool exclude_from_merge_;
@@ -5137,7 +5143,7 @@ class Benchmark {
     if (db_.db == nullptr) {
       num_key_gens = multi_dbs_.size();
     }
-    std::vector<std::unique_ptr<KeyGenerator>> key_gens(num_key_gens);
+    std::vector<std::unique_ptr<KeyGenerator> > key_gens(num_key_gens);
     int64_t max_ops = num_ops * num_key_gens;
     int64_t ops_per_stage = max_ops;
     if (FLAGS_num_column_families > 1 && FLAGS_num_hot_column_families > 0) {
@@ -5242,11 +5248,11 @@ class Benchmark {
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
-    std::vector<std::queue<std::pair<uint64_t, uint64_t>>> disposable_entries_q(
-        num_key_gens);
+    std::vector<std::queue<std::pair<uint64_t, uint64_t> > >
+        disposable_entries_q(num_key_gens);
     // --- End of variables used in disposable/persistent keys simulation.
 
-    std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
+    std::vector<std::unique_ptr<const char[]> > expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
       expanded_key_guards.resize(range_tombstone_width_);
@@ -5604,7 +5610,8 @@ class Benchmark {
     auto num_db = db_list.size();
     size_t num_levels = static_cast<size_t>(open_options_.num_levels);
     size_t output_level = open_options_.num_levels - 1;
-    std::vector<std::vector<std::vector<SstFileMetaData>>> sorted_runs(num_db);
+    std::vector<std::vector<std::vector<SstFileMetaData> > > sorted_runs(
+        num_db);
     std::vector<size_t> num_files_at_level0(num_db, 0);
     if (compaction_style == kCompactionStyleLevel) {
       if (num_levels == 0) {
@@ -6216,7 +6223,7 @@ class Benchmark {
     int64_t found = 0;
     ReadOptions options = read_options_;
     std::vector<Slice> keys;
-    std::vector<std::unique_ptr<const char[]>> key_guards;
+    std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
     PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
     std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
@@ -6313,9 +6320,9 @@ class Benchmark {
     const size_t batch_size = entries_per_batch_;
     std::vector<Range> ranges;
     std::vector<Slice> lkeys;
-    std::vector<std::unique_ptr<const char[]>> lkey_guards;
+    std::vector<std::unique_ptr<const char[]> > lkey_guards;
     std::vector<Slice> rkeys;
-    std::vector<std::unique_ptr<const char[]>> rkey_guards;
+    std::vector<std::unique_ptr<const char[]> > rkey_guards;
     std::vector<uint64_t> sizes;
     while (ranges.size() < batch_size) {
       // Ugly without C++17 return from emplace_back
@@ -7025,7 +7032,7 @@ class Benchmark {
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
     uint64_t num_range_deletions = 0;
-    std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
+    std::vector<std::unique_ptr<const char[]> > expanded_key_guards;
     std::vector<Slice> expanded_keys;
     if (FLAGS_expand_range_tombstones) {
       expanded_key_guards.resize(range_tombstone_width_);
@@ -8714,6 +8721,31 @@ int db_bench_tool(int argc, char** argv) {
             "settable\n");
     exit(1);
   }
+
+#ifdef OPENSSL
+  if (!FLAGS_encryption_method.empty()) {
+    ROCKSDB_NAMESPACE::encryption::EncryptionMethod method =
+        ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kUnknown;
+    if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES128CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES128_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES192CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES192_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES256CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES256_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "SM4CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kSM4_CTR;
+    }
+    if (method == ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kUnknown) {
+      fprintf(stderr, "Unknown encryption method %s\n",
+              FLAGS_encryption_method.c_str());
+      exit(1);
+    }
+    std::shared_ptr<ROCKSDB_NAMESPACE::encryption::KeyManager> key_manager(
+        new ROCKSDB_NAMESPACE::encryption::InMemoryKeyManager(method));
+    FLAGS_env = ROCKSDB_NAMESPACE::encryption::NewKeyManagedEncryptedEnv(
+        FLAGS_env, key_manager);
+  }
+#endif  // OPENSSL
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NONE;
