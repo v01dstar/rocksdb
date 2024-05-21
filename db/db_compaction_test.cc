@@ -247,7 +247,7 @@ class SplitAllPartitioner : public SstPartitioner {
     return PartitionerResult::kRequired;
   }
 
-  bool CanDoTrivialMove(const Slice&, const Slice&) { return true; }
+  bool CanDoTrivialMove(const Slice&, const Slice&) override { return true; }
 };
 
 class SplitAllPatitionerFactory : public SstPartitionerFactory {
@@ -1226,9 +1226,9 @@ TEST_F(DBCompactionTest, CompactionSstPartitionerNextLevel) {
           ASSERT_EQ(next_level_overlap_files, cx.OutputNextLevelSegmentCount());
           for (size_t i = 0; i < overlapped_files.size(); i++) {
             Slice next_level_lower, next_level_upper;
-            int next_level_size;
-            cx.OutputNextLevelSegment(i, &next_level_lower, &next_level_upper,
-                                      &next_level_size);
+            size_t next_level_size;
+            cx.OutputNextLevelSegment((int)i, &next_level_lower,
+                                      &next_level_upper, &next_level_size);
 
             if (i == 0) {
               ASSERT_EQ(overlapped_files[i].smallestkey, next_level_lower);
@@ -1243,24 +1243,24 @@ TEST_F(DBCompactionTest, CompactionSstPartitionerNextLevel) {
   ASSERT_OK(Put("A", "there are more than 10 bytes."));
   ASSERT_OK(Put("B", "yet another key."));
   ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(Put("A1", "the new challenger..."));
   ASSERT_OK(Put("B1", "and his buddy."));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(Put("A1P", "the new challenger... Changed."));
   ASSERT_OK(Put("B1P", "and his buddy. Changed too."));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(Put(InternalKey("A", 0, ValueType::kTypeDeletion).Encode(),
                 "And a tricker: he pretends to be A, but not A."));
   ASSERT_OK(Put(InternalKey("B", 0, ValueType::kTypeDeletion).Encode(),
                 "Yeah, another tricker."));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::vector<LiveFileMetaData> files;
   dbfull()->GetLiveFilesMetaData(&files);

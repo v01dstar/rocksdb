@@ -64,12 +64,12 @@ class TestFilterFactory : public CompactionFilterFactory {
  public:
   std::shared_ptr<CompactionFilter::Context> context_;
   std::shared_ptr<int> compaction_count_;
+  std::string start_key_;
+  std::string end_key_;
 
   TestFilterFactory(std::shared_ptr<CompactionFilter::Context> context,
-                    std::shared_ptr<int> compaction_count) {
-    this->context_ = context;
-    this->compaction_count_ = compaction_count;
-  }
+                    std::shared_ptr<int> compaction_count)
+      : context_(context), compaction_count_(compaction_count) {}
 
   ~TestFilterFactory() {}
 
@@ -77,8 +77,10 @@ class TestFilterFactory : public CompactionFilterFactory {
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) {
-    context_->start_key = context.start_key;
-    context_->end_key = context.end_key;
+    start_key_ = context.start_key.ToString();
+    context_->start_key = Slice(start_key_);
+    end_key_ = context.end_key.ToString();
+    context_->end_key = Slice(end_key_);
     context_->is_end_key_inclusive = context.is_end_key_inclusive;
     context_->input_table_properties = context.input_table_properties;
     *compaction_count_.get() += 1;
@@ -115,16 +117,16 @@ TEST_F(CompactFilesTest, FilterContext) {
   assert(db);
 
   // `Flush` is different from `Compaction`.
-  db->Put(WriteOptions(), std::to_string(1), "");
-  db->Put(WriteOptions(), std::to_string(51), "");
+  db->Put(WriteOptions(), "1", "");
+  db->Put(WriteOptions(), "51", "");
   db->Flush(FlushOptions());
-  db->Put(WriteOptions(), std::to_string(50), "");
-  db->Put(WriteOptions(), std::to_string(99), "");
+  db->Put(WriteOptions(), "50", "");
+  db->Put(WriteOptions(), "99", "");
   db->Flush(FlushOptions());
   ASSERT_EQ(*compaction_count.get(), 0);
 
   db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  usleep(10000);  // Wait for compaction start.
+  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact());
   ASSERT_EQ(expected_context->start_key, Slice("1"));
   ASSERT_EQ(expected_context->is_end_key_inclusive, 1);
   ASSERT_EQ(expected_context->input_table_properties.size(), 2);
@@ -608,7 +610,7 @@ TEST_F(CompactFilesTest, IsWriteStalled) {
     for (int j = 0; j < 100; ++j) {
       char key[16];
       bzero(key, 16);
-      sprintf(key, "foo%.2d", j);
+      snprintf(key, 5, "foo%.2d", j);
       ASSERT_OK(wb.Put(handles[0], key, "bar"));
     }
 
