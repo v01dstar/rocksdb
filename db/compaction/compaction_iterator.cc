@@ -340,7 +340,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         existing_col = &existing_columns;
       }
 
-      decision = compaction_filter_->UnsafeFilter(
+      decision = compaction_filter_->FilterV4(
           level_, filter_key, ikey_.sequence, value_type, existing_val,
           existing_col, &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep());

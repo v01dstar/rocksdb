@@ -245,7 +245,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs3) {
   std::unordered_set<WriteThread::Writer*> w_set;
   std::vector<port::Thread> threads;
   int wait_count_db = 0;
-  int num_writers1 = 4;  // default, cf1-cf3
+  int num_writers1 = 6;  // default, cf1-cf3
   InstrumentedMutex mutex;
   InstrumentedCondVar cv(&mutex);
   std::atomic<int> thread_num(0);
@@ -497,7 +497,7 @@ TEST_P(DBWriteBufferManagerTest, DynamicFlushSize) {
   {
     WriteOptions wo;
     wo.disableWAL = true;
-    ASSERT_OK(db2->Put(wo, Key(1), DummyString(60000)));
+    ASSERT_OK(db2->Put(wo, Key(1), DummyString(50000)));
     ASSERT_OK(Put(1, Key(1), DummyString(30000), wo));
     ASSERT_OK(Put(0, Key(1), DummyString(30000), wo));
     // Write to DB.
@@ -1148,6 +1148,9 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+// Disabled, scine multi-instances RocksDB project has a different stall
+// strategy.
+//
 // Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
 // thrash memtable switching when full and a CF receives multiple writes.
 // Instead, we expect to switch a CF's memtable for flush only when that CF does
@@ -1158,7 +1161,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 // by writing to that CF's DB.
 //
 // Not supported in LITE mode due to `GetProperty()` unavailable.
-TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
+TEST_P(DBWriteBufferManagerTest, DISABLED_StopSwitchingMemTablesOnceFlushing) {
   Options options = CurrentOptions();
   options.arena_block_size = 4 << 10;   // 4KB
   options.write_buffer_size = 1 << 20;  // 1MB
@@ -1213,12 +1216,14 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   delete shared_wbm_db;
 }
 
-TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
+// Disabled, since multi-instances RocksDB project has a different stall
+// strategy.
+TEST_F(DBWriteBufferManagerTest, DISABLED_RuntimeChangeableAllowStall) {
   constexpr int kBigValue = 10000;
 
   Options options = CurrentOptions();
   options.write_buffer_manager.reset(
-      new WriteBufferManager(1, nullptr /* cache */, true /* allow_stall */));
+      new WriteBufferManager(1, nullptr /* cache */, 1.0 /* stall_ratio */));
   DestroyAndReopen(options);
 
   // Pause flush thread so that

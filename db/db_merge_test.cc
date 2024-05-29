@@ -16,10 +16,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 const uint32_t default_cf = 0;
-uint32_t operator"" _db(unsigned long long int i) { return i; }
+uint32_t operator"" _db(unsigned long long int i) { return uint32_t(i); }
 uint32_t operator"" _cf(unsigned long long int i) {
   assert(i > 0);
-  return i;
+  return uint32_t(i);
 }
 
 class DBMergeTest : public testing::Test {
@@ -85,7 +85,7 @@ class DBMergeTest : public testing::Test {
     for (auto* handle : cf_handles) {
       uint32_t id = 0;
       if (handle->GetName() != "default") {
-        id = stoul(handle->GetName());
+        id = uint32_t(stoul(handle->GetName()));
       }
       db_handles.cfs[id] = handle;
     }

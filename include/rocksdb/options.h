@@ -338,6 +338,13 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Column family based write buffer manager, if this is set, this column
+  // facmily will not report memtable memory usage to the write buffer manager
+  // in DBImpl.
+  //
+  // Default: null
+  std::shared_ptr<WriteBufferManager> cf_write_buffer_manager = nullptr;
+
   // RocksDB will try to flush the current memtable after the number of range
   // deletions is >= this limit. For workloads with many range
   // deletions, limiting the number of range deletions in memtable can help
@@ -348,12 +355,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint32_t memtable_max_range_deletions = 0;
-  // Column family based write buffer manager, if this is set, this column
-  // facmily will not report memtable memory usage to the write buffer manager
-  // in DBImpl.
-  //
-  // Default: null
-  std::shared_ptr<WriteBufferManager> cf_write_buffer_manager = nullptr;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();

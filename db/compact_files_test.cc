@@ -610,7 +610,7 @@ TEST_F(CompactFilesTest, IsWriteStalled) {
     for (int j = 0; j < 100; ++j) {
       char key[16];
       bzero(key, 16);
-      snprintf(key, 5, "foo%.2d", j);
+      snprintf(key, sizeof(key), "foo%.2d", j);
       ASSERT_OK(wb.Put(handles[0], key, "bar"));
     }
 

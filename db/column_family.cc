@@ -1260,7 +1260,7 @@ Status ColumnFamilyData::GetMemtablesUserKeyRange(PinnableSlice* smallest,
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(mem_->NewIterator(read_opts, &arena));
-  imm_.current()->AddIterators(read_opts, &merge_iter_builder);
+  imm_.current()->AddIterators(read_opts, &merge_iter_builder, false);
   ScopedArenaIterator mem_iter(merge_iter_builder.Finish());
   mem_iter->SeekToFirst();
   if (mem_iter->Valid()) {
@@ -1282,7 +1282,7 @@ Status ColumnFamilyData::GetMemtablesUserKeyRange(PinnableSlice* smallest,
     imm_.ExportMemtables(&memtables);
     for (auto* mem : memtables) {
       auto* iter =
-          mem->NewRangeTombstoneIterator(read_opts, kMaxSequenceNumber);
+          mem->NewRangeTombstoneIterator(read_opts, kMaxSequenceNumber, false);
       if (iter != nullptr) {
         iter->SeekToFirst();
         if (iter->Valid()) {

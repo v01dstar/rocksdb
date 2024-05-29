@@ -721,12 +721,11 @@ TEST_P(CompactionIteratorTest, SingleMergeOperand) {
 
 TEST_P(CompactionIteratorTest, RemoveAllSingleDeletes) {
   struct Filter : public CompactionFilter {
-    Decision UnsafeFilter(
-        int /*level*/, const Slice& key, SequenceNumber /*seq*/, ValueType t,
-        const Slice* /*existing_value*/, const WideColumns*,
-        std::string* /*new_value*/,
-        std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
-        std::string* skip_until) const override {
+    Decision UnsafeFilter(int /*level*/, const Slice& key,
+                          SequenceNumber /*seq*/, ValueType t,
+                          const Slice* /*existing_value*/,
+                          std::string* /*new_value*/,
+                          std::string* skip_until) const override {
       if (t == ValueType::kDeletion) {
         *skip_until = key.ToString();
         skip_until->back() += 1;

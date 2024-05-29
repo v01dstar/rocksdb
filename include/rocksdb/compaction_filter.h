@@ -62,7 +62,6 @@ class CompactionFilter : public Customizable {
     kValue,
     // Merge operand
     kMergeOperand,
-<<<<<<< HEAD
     // Used internally by the old stacked BlobDB implementation; this value type
     // is never passed to application code. Note that when using the new
     // integrated BlobDB, values stored separately as blobs are retrieved and
@@ -72,10 +71,6 @@ class CompactionFilter : public Customizable {
     kWideColumnEntity,
     // Only used by TiKV's region range filter.
     kDeletion,
-=======
-    kBlobIndex,  // used internally by BlobDB.
-    kDeletion,   // used only by TiKV's region range filter.
->>>>>>> de47e8ece (filter deletion in compaction filter (#344))
   };
 
   // Potential decisions that can be returned by the compaction filter's
@@ -321,27 +316,40 @@ class CompactionFilter : public Customizable {
                     skip_until);
   }
 
+  // This interface supports TiKV's region range filter, meanwhile keeping the
+  // default FilterV3 implementation for compatibility.
   virtual Decision FilterV4(
-      int level, const Slice& key, SequenceNumber, ValueType value_type,
-      const Slice* existing_value, const WideColumns* existing_columns,
-      std::string* new_value,
-      std::vector<std::pair<std::string, std::string>>* new_columns,
-      std::string* skip_until) const {
-    return FilterV3(level, key, value_type, existing_value, existing_columns,
-                    new_value, new_columns, skip_until);
-  }
-
-  // This interface is reserved for TiKV's region range filter. Only this
-  // interface can accept `value_type=kTypeDeletion`.
-  virtual Decision UnsafeFilter(
       int level, const Slice& key, SequenceNumber seqno, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
       std::string* new_value,
       std::vector<std::pair<std::string, std::string>>* new_columns,
       std::string* skip_until) const {
+#ifdef NDEBUG
+    (void)existing_columns;
+#endif
+
+    assert(!existing_value || !existing_columns);
+    assert(value_type == ValueType::kWideColumnEntity || existing_value);
+    assert(value_type != ValueType::kWideColumnEntity || existing_columns);
+
+    if (value_type == ValueType::kWideColumnEntity) {
+      return Decision::kKeep;
+    }
+
+    return UnsafeFilter(level, key, seqno, value_type, *existing_value,
+                        new_value, skip_until);
+  }
+
+  // This interface is reserved for TiKV's region range filter. Only this
+  // interface can accept `value_type=kTypeDeletion`.
+  virtual Decision UnsafeFilter(int level, const Slice& key,
+                                SequenceNumber seqno, ValueType value_type,
+                                const Slice& existing_value,
+                                std::string* new_value,
+                                std::string* skip_until) const {
     if (value_type != ValueType::kDeletion) {
-      return FilterV4(level, key, seqno, value_type, existing_value,
-                      existing_columns, new_value, new_columns, skip_until);
+      return FilterV2(level, key, value_type, existing_value, new_value,
+                      skip_until);
     } else {
       return Decision::kKeep;
     }

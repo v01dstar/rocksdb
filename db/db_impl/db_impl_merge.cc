@@ -290,15 +290,18 @@ Status DBImpl::MergeDisjointInstances(const MergeInstanceOptions& merge_options,
           if (!s.ok()) {
             return s;
           }
-          edit.AddFile(
-              level, target_file_number, target_path_id, f->fd.GetFileSize(),
-              f->smallest, f->largest, f->fd.smallest_seqno,
-              f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
-              f->oldest_blob_file_number, f->oldest_ancester_time,
-              f->file_creation_time, f->file_checksum,
-              f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
+          edit.AddFile(level, target_file_number, target_path_id,
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->fd.smallest_seqno, f->fd.largest_seqno,
+                       f->marked_for_compaction, f->temperature,
+                       f->oldest_blob_file_number, f->oldest_ancester_time,
+                       f->file_creation_time, f->epoch_number, f->file_checksum,
+                       f->file_checksum_func_name, f->unique_id,
+                       f->compensated_range_deletion_size, f->tail_size,
+                       f->user_defined_timestamps_persisted);
         }
       }
+      vsi.RecoverEpochNumbers(this_cfd);
     }
   }
 
@@ -321,8 +324,8 @@ Status DBImpl::MergeDisjointInstances(const MergeInstanceOptions& merge_options,
     }
 
     InstrumentedMutexLock lock(&mutex_);
-    s = versions_->LogAndApply(this_cfds, cf_mopts, edit_ptrs, &mutex_,
-                               directories_.GetDbDir(), false);
+    s = versions_->LogAndApply(this_cfds, cf_mopts, ReadOptions(), edit_ptrs,
+                               &mutex_, directories_.GetDbDir(), false);
     if (!s.ok()) {
       return s;
     }
@@ -340,14 +343,15 @@ Status DBImpl::MergeDisjointInstances(const MergeInstanceOptions& merge_options,
       cfd->imm()->FlushRequested();
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
-        GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+        GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
+        SchedulePendingFlush(flush_req);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
-      GenerateFlushRequest(this_cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      GenerateFlushRequest(this_cfds, FlushReason::kWriteBufferFull,
+                           &flush_req);
+      SchedulePendingFlush(flush_req);
     }
     for (auto cfd : this_cfds) {
       SchedulePendingCompaction(cfd);
