@@ -357,6 +357,12 @@ class DB {
     return Status::NotSupported("`MergeDisjointInstances` not implemented");
   }
 
+  // Check all data written before this call is in the range [begin, end).
+  // Return InvalidArgument if not.
+  virtual Status CheckInRange(const Slice* /*begin*/, const Slice* /*end*/) {
+    return Status::NotSupported("`AssertInRange` not implemented");
+  }
+
   // Manually, synchronously attempt to resume DB writes after a write failure
   // to the underlying filesystem. See
   // https://github.com/facebook/rocksdb/wiki/Background-Error-Handling
