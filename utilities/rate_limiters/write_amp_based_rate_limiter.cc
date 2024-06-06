@@ -79,13 +79,12 @@ WriteAmpBasedRateLimiter::WriteAmpBasedRateLimiter(
 WriteAmpBasedRateLimiter::~WriteAmpBasedRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
-  requests_to_wait_ = static_cast<int32_t>(queue_[Env::IO_LOW].size() +
-                                           queue_[Env::IO_HIGH].size());
-  for (auto& r : queue_[Env::IO_HIGH]) {
-    r->cv.Signal();
-  }
-  for (auto& r : queue_[Env::IO_LOW]) {
-    r->cv.Signal();
+
+  for (auto i = 0; i < Env::IO_TOTAL; ++i) {
+    requests_to_wait_ += queue_[i].size();
+    for (auto& r : queue_[i]) {
+      r->cv.Signal();
+    }
   }
   while (requests_to_wait_ > 0) {
     exit_cv_.Wait();
@@ -129,18 +128,29 @@ void WriteAmpBasedRateLimiter::SetActualBytesPerSecond(
       std::memory_order_relaxed);
 }
 
+bool WriteAmpBasedRateLimiter::IsFrontOfOneQueue(Req* r) {
+  request_mutex_.AssertHeld();
+  for (auto i = 0; i < Env::IO_TOTAL; ++i) {
+    if (!queue_[i].empty() && r == queue_[i].front()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                        Statistics* stats) {
   TEST_SYNC_POINT("WriteAmpBasedRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("WriteAmpBasedRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
-  if (auto_tuned_.load(std::memory_order_acquire) && pri == Env::IO_HIGH &&
+  if (auto_tuned_.load(std::memory_order_acquire) &&
+      (pri == Env::IO_HIGH || pri == Env::IO_USER) &&
       duration_highpri_bytes_through_ + duration_bytes_through_ + bytes <=
           max_bytes_per_sec_.load(std::memory_order_relaxed) * secs_per_tune_) {
     // In the case where low-priority request is absent, actual time elapsed
     // will be larger than secs_per_tune_, making the limit even tighter.
-    total_bytes_through_[Env::IO_HIGH] += bytes;
-    ++total_requests_[Env::IO_HIGH];
+    total_bytes_through_[pri] += bytes;
+    ++total_requests_[pri];
     duration_highpri_bytes_through_ += bytes;
     return;
   }
@@ -183,10 +193,7 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     //     to lower priority
     // (3) a previous waiter at the front of queue, who got notified by
     //     previous leader
-    if (leader_ == nullptr &&
-        ((!queue_[Env::IO_HIGH].empty() &&
-          &r == queue_[Env::IO_HIGH].front()) ||
-         (!queue_[Env::IO_LOW].empty() && &r == queue_[Env::IO_LOW].front()))) {
+    if (leader_ == nullptr && IsFrontOfOneQueue(&r)) {
       leader_ = &r;
       int64_t delta = next_refill_us_ - NowMicrosMonotonic(env_);
       delta = delta > 0 ? delta : 0;
@@ -210,15 +217,8 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     }
 
     // Make sure the waken up request is always the header of its queue
-    assert(
-        r.granted ||
-        (!queue_[Env::IO_HIGH].empty() && &r == queue_[Env::IO_HIGH].front()) ||
-        (!queue_[Env::IO_LOW].empty() && &r == queue_[Env::IO_LOW].front()));
-    assert(leader_ == nullptr ||
-           (!queue_[Env::IO_HIGH].empty() &&
-            leader_ == queue_[Env::IO_HIGH].front()) ||
-           (!queue_[Env::IO_LOW].empty() &&
-            leader_ == queue_[Env::IO_LOW].front()));
+    assert(r.granted || IsFrontOfOneQueue(&r));
+    assert(leader_ == nullptr || IsFrontOfOneQueue(leader_));
 
     if (leader_ == &r) {
       // Waken up from TimedWait()
@@ -234,14 +234,11 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         if (r.granted) {
           // Current leader already got granted with quota. Notify header
           // of waiting queue to participate next round of election.
-          assert((queue_[Env::IO_HIGH].empty() ||
-                  &r != queue_[Env::IO_HIGH].front()) &&
-                 (queue_[Env::IO_LOW].empty() ||
-                  &r != queue_[Env::IO_LOW].front()));
-          if (!queue_[Env::IO_HIGH].empty()) {
-            queue_[Env::IO_HIGH].front()->cv.Signal();
-          } else if (!queue_[Env::IO_LOW].empty()) {
-            queue_[Env::IO_LOW].front()->cv.Signal();
+          for (auto i = 0; i < Env::IO_TOTAL; ++i) {
+            if (!queue_[i].empty()) {
+              assert(queue_[i].front() != &r);
+              queue_[i].front()->cv.Signal();
+            }
           }
           // Done
           break;
@@ -264,6 +261,44 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   } while (!r.granted);
 }
 
+std::vector<Env::IOPriority>
+WriteAmpBasedRateLimiter::GeneratePriorityIterationOrderLocked() {
+  std::vector<Env::IOPriority> pri_iteration_order(Env::IO_TOTAL /* 4 */);
+  // We make Env::IO_USER a superior priority by always iterating its queue
+  // first
+  pri_iteration_order[0] = Env::IO_USER;
+
+  bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK(
+      "WriteAmpBasedRateLimiter::GeneratePriorityIterationOrderLocked::"
+      "PostRandomOneInFairnessForHighPri",
+      &high_pri_iterated_after_mid_low_pri);
+  bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
+  TEST_SYNC_POINT_CALLBACK(
+      "WriteAmpBasedRateLimiter::GeneratePriorityIterationOrderLocked::"
+      "PostRandomOneInFairnessForMidPri",
+      &mid_pri_itereated_after_low_pri);
+
+  if (high_pri_iterated_after_mid_low_pri) {
+    pri_iteration_order[3] = Env::IO_HIGH;
+    pri_iteration_order[2] =
+        mid_pri_itereated_after_low_pri ? Env::IO_MID : Env::IO_LOW;
+    pri_iteration_order[1] =
+        (pri_iteration_order[2] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
+  } else {
+    pri_iteration_order[1] = Env::IO_HIGH;
+    pri_iteration_order[3] =
+        mid_pri_itereated_after_low_pri ? Env::IO_MID : Env::IO_LOW;
+    pri_iteration_order[2] =
+        (pri_iteration_order[3] == Env::IO_MID) ? Env::IO_LOW : Env::IO_MID;
+  }
+  TEST_SYNC_POINT_CALLBACK(
+      "WriteAmpBasedRateLimiter::GeneratePriorityIterationOrderLocked::"
+      "PreReturnPriIterationOrder",
+      &pri_iteration_order);
+  return pri_iteration_order;
+}
+
 void WriteAmpBasedRateLimiter::Refill() {
   TEST_SYNC_POINT("WriteAmpBasedRateLimiter::Refill");
   next_refill_us_ = NowMicrosMonotonic(env_) + refill_period_us_;
@@ -272,10 +307,9 @@ void WriteAmpBasedRateLimiter::Refill() {
       refill_bytes_per_period_.load(std::memory_order_relaxed);
   available_bytes_ = refill_bytes_per_period;
 
-  int use_low_pri_first = rnd_.OneIn(fairness_) ? 0 : 1;
-  for (int q = 0; q < 2; ++q) {
-    auto use_pri = (use_low_pri_first == q) ? Env::IO_LOW : Env::IO_HIGH;
-    auto* queue = &queue_[use_pri];
+  auto order = GeneratePriorityIterationOrderLocked();
+  for (auto pri : order) {
+    auto* queue = &queue_[pri];
     while (!queue->empty()) {
       auto* next_req = queue->front();
       if (available_bytes_ < next_req->request_bytes) {
@@ -286,7 +320,7 @@ void WriteAmpBasedRateLimiter::Refill() {
       }
       available_bytes_ -= next_req->request_bytes;
       next_req->request_bytes = 0;
-      total_bytes_through_[use_pri] += next_req->bytes;
+      total_bytes_through_[pri] += next_req->bytes;
       duration_bytes_through_ += next_req->bytes;
       queue->pop_front();
 
@@ -316,8 +350,8 @@ int64_t WriteAmpBasedRateLimiter::CalculateRefillBytesPerPeriod(
 // called **at most** once every `secs_per_tune`.
 // I/O throughput threshold is automatically tuned based on history samples of
 // compaction and flush flow. This algorithm excels by taking into account the
-// limiter's inability to estimate the pressure of pending compactions, and the
-// possibility of foreground write fluctuation.
+// limiter's inability to estimate the pressure of pending compactions, and
+// the possibility of foreground write fluctuation.
 Status WriteAmpBasedRateLimiter::Tune() {
   // computed rate limit will be larger than 10MB/s
   const int64_t kMinBytesPerSec = 10 << 20;

@@ -322,7 +322,7 @@ class CompactionFilter : public Customizable {
       int level, const Slice& key, SequenceNumber seqno, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
       std::string* new_value,
-      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
       std::string* skip_until) const {
 #ifdef NDEBUG
     (void)existing_columns;
@@ -343,7 +343,7 @@ class CompactionFilter : public Customizable {
   // This interface is reserved for TiKV's region range filter. Only this
   // interface can accept `value_type=kTypeDeletion`.
   virtual Decision UnsafeFilter(int level, const Slice& key,
-                                SequenceNumber seqno, ValueType value_type,
+                                SequenceNumber /*seqno*/, ValueType value_type,
                                 const Slice& existing_value,
                                 std::string* new_value,
                                 std::string* skip_until) const {

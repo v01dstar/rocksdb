@@ -55,7 +55,9 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
       return total_bytes_through_[Env::IO_LOW] +
-             total_bytes_through_[Env::IO_HIGH];
+             total_bytes_through_[Env::IO_MID] +
+             total_bytes_through_[Env::IO_HIGH] +
+             total_bytes_through_[Env::IO_USER];
     }
     return total_bytes_through_[pri];
   }
@@ -64,7 +66,8 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
-      return total_requests_[Env::IO_LOW] + total_requests_[Env::IO_HIGH];
+      return total_requests_[Env::IO_LOW] + total_requests_[Env::IO_MID] +
+             total_requests_[Env::IO_HIGH] + total_requests_[Env::IO_USER];
     }
     return total_requests_[pri];
   }
@@ -80,10 +83,13 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   virtual void PaceUp(bool critical) override;
 
  private:
+  struct Req;
+  bool IsFrontOfOneQueue(Req* req);
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   void SetActualBytesPerSecond(int64_t bytes_per_second);
   Status Tune();
+  std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
 
   uint64_t NowMicrosMonotonic(Env* env) {
     return env->NowNanos() / std::milli::den;
@@ -113,7 +119,6 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   int32_t fairness_;
   Random rnd_;
 
-  struct Req;
   Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
 

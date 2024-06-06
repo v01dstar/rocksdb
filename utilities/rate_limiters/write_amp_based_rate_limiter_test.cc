@@ -15,10 +15,10 @@
 
 #include "db/db_test_util.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
 
