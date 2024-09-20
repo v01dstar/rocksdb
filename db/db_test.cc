@@ -2681,7 +2681,15 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
 }
 
-TEST_F(DBTest, PurgeInfoLogs) {
+// Disable this test, since it fails with current tikv/rocksdb CI setup.
+// This test fails if it run as ./db_test, since previous test cases create
+// a dir under dbname causing the assertion in line 2722 to fail. It passes
+// when run as `make check -j x`, since test case is executed in separate
+// directory.
+// TiKV CI cannot migrate to `make check -j x` because the sub-steps require
+// python3, which is not available in TiKV CI centos7.
+// TODO: Fix this test by using `make check -j x` when TiKV CI has python3
+TEST_F(DBTest, DISABLED_PurgeInfoLogs) {
   Options options = CurrentOptions();
   options.keep_log_file_num = 5;
   options.create_if_missing = true;
