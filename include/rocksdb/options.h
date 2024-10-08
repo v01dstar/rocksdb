@@ -349,6 +349,13 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint32_t memtable_max_range_deletions = 0;
 
+  // Column family based write buffer manager, if this is set, this column
+  // facmily will not report memtable memory usage to the write buffer manager
+  // in DBImpl.
+  //
+  // Default: null
+  std::shared_ptr<WriteBufferManager> cf_write_buffer_manager = nullptr;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -1885,7 +1892,23 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+  // Only flush memtable if it has the expected oldest key time.
+  // This option is ignored for atomic flush. Zero means disabling the check.
+  // Default: 0
+  uint64_t expected_oldest_key_time;
+  // Abort flush if compaction is disabled via `DisableManualCompaction`.
+  // Default: false
+  bool check_if_compaction_disabled;
+  // Used by RocksDB internally.
+  // Default: false
+  bool _write_stopped;
+
+  FlushOptions()
+      : wait(true),
+        allow_write_stall(false),
+        expected_oldest_key_time(0),
+        check_if_compaction_disabled(false),
+        _write_stopped(false) {}
 };
 
 // Create a Logger from provided DBOptions
@@ -2206,6 +2229,17 @@ struct WaitForCompactOptions {
   // when timeout == 0, WaitForCompact() will wait as long as there's background
   // work to finish.
   std::chrono::microseconds timeout = std::chrono::microseconds::zero();
+};
+
+struct MergeInstanceOptions {
+  // Whether to merge memtable. WAL must be empty to perform a memtable merge.
+  // Either write with disableWAL=true, or flush memtables before merge.
+  bool merge_memtable = false;
+  // Whether or not writes to source DBs are still allowed after the merge.
+  // Some optimizations are possible only with this flag set to false.
+  bool allow_source_write = true;
+  // No limit if negative.
+  int max_preload_files = 16;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
