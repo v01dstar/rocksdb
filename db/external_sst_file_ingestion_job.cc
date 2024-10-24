@@ -1083,15 +1083,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
-    if (cfd_->RangeOverlapWithCompaction(file_to_ingest->start_ukey,
-                                         file_to_ingest->limit_ukey, lvl)) {
-      // We must use L0 or any level higher than `lvl` to be able to overwrite
-      // the compaction output keys that we overlap with in this level, We also
-      // need to assign this file a seqno to overwrite the compaction output
-      // keys in level `lvl`
-      overlap_with_db = true;
-      break;
-    } else if (vstorage->NumLevelFiles(lvl) > 0) {
+    if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(
           ro, env_options_, file_to_ingest->start_ukey,
@@ -1279,6 +1271,10 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     return false;
   }
 
+  if (cfd_->RangeOverlapWithCompaction(file_to_ingest->start_ukey,
+                                       file_to_ingest->limit_ukey, level)) {
+    return false;
+  }
   // File did not overlap with level files, nor compaction output
   return true;
 }
